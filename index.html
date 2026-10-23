@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=2" />
   <title>Мой график</title>
 </head>
 <body>
@@ -102,17 +102,57 @@
           <strong id="scheduleBalance">0 мин</strong>
         </div>
 
+        <section class="calendar-card" aria-label="Календарь рабочего времени">
+          <div class="calendar-toolbar">
+            <button class="icon-button tiny" id="prevMonthBtn" aria-label="Предыдущий месяц">‹</button>
+            <button class="calendar-title-button" id="calendarTodayBtn" type="button">
+              <strong id="calendarTitle"></strong>
+              <small>нажми, чтобы вернуться к текущему месяцу</small>
+            </button>
+            <button class="icon-button tiny" id="nextMonthBtn" aria-label="Следующий месяц">›</button>
+          </div>
+          <div class="calendar-weekdays" aria-hidden="true">
+            <span>пн</span><span>вт</span><span>ср</span><span>чт</span><span>пт</span><span>сб</span><span>вс</span>
+          </div>
+          <div class="calendar-grid" id="calendarGrid"></div>
+          <div class="calendar-legend">
+            <span><i class="legend-dot positive"></i>в плюс</span>
+            <span><i class="legend-dot negative"></i>в минус</span>
+            <span><i class="legend-dot study"></i>учёба / планы</span>
+          </div>
+        </section>
+
         <div id="scheduleList" class="schedule-list"></div>
       </section>
 
       <section class="screen" id="plansScreen" data-screen="plans">
-        <article class="plans-intro">
+        <article class="week-toolbar-card">
+          <button class="icon-button small" id="prevWeekBtn" aria-label="Предыдущая неделя">‹</button>
+          <button class="period-button" id="currentWeekBtn" type="button">
+            <span class="label">План недели</span>
+            <strong id="weekRange"></strong>
+          </button>
+          <button class="icon-button small" id="nextWeekBtn" aria-label="Следующая неделя">›</button>
+        </article>
+
+        <section class="week-planner-card">
+          <div class="section-heading">
+            <div>
+              <span class="label">Работа + учёба</span>
+              <h2>Когда приходить и уходить</h2>
+            </div>
+          </div>
+          <p class="muted small-text week-helper">Нажми на день и укажи время пар или других планов. Время ухода посчитается само.</p>
+          <div id="weekPlannerList" class="week-planner-list"></div>
+        </section>
+
+        <div class="plans-section-heading">
           <div>
-            <span class="label">Неделя</span>
-            <h2 id="weekRange"></h2>
+            <span class="label">Обычные дела</span>
+            <h2>Список по дням недели</h2>
           </div>
           <button class="secondary-button small-btn" id="addPlanBtn">+ Добавить</button>
-        </article>
+        </div>
         <div id="plansList" class="plans-list"></div>
       </section>
     </main>
@@ -195,6 +235,53 @@
     </form>
   </dialog>
 
+  <dialog id="weekPlanDialog" class="sheet-dialog">
+    <form method="dialog" id="weekPlanForm" class="sheet-content">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <div>
+          <span class="label">План рабочего дня</span>
+          <h2 id="weekPlanDialogTitle">Понедельник</h2>
+        </div>
+        <button type="button" class="icon-button" id="closeWeekPlanBtn" aria-label="Закрыть">×</button>
+      </div>
+
+      <input type="hidden" id="weekPlanDate" />
+
+      <label class="field">
+        <span>Плановый приход</span>
+        <input type="time" id="plannedArrivalInput" />
+      </label>
+
+      <div class="form-grid two">
+        <label class="field">
+          <span>Нужно быть к</span>
+          <input type="time" id="weekMustBeAtInput" />
+        </label>
+        <label class="field">
+          <span>Дорога, мин</span>
+          <input type="number" id="weekCommuteInput" min="0" max="240" inputmode="numeric" />
+        </label>
+      </div>
+
+      <label class="field">
+        <span>Куда / зачем</span>
+        <input type="text" id="weekDestinationInput" maxlength="80" placeholder="Например: пары в университете" />
+      </label>
+
+      <div class="plan-calculation-card" id="weekPlanCalculation">
+        <div><span>По норме</span><strong id="weekNormalLeave">—</strong></div>
+        <div><span>Чтобы успеть</span><strong id="weekNeedLeave">—</strong></div>
+        <p id="weekPlanDeltaText">Укажи время, чтобы увидеть расчёт</p>
+      </div>
+
+      <div class="dialog-actions">
+        <button type="button" class="danger-ghost" id="deleteWeekPlanBtn">Очистить план</button>
+        <button type="submit" class="primary-button">Сохранить</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="planDialog" class="sheet-dialog">
     <form method="dialog" id="planForm" class="sheet-content compact-sheet">
       <div class="sheet-handle"></div>
@@ -252,14 +339,19 @@
 
       <div class="form-grid two">
         <label class="field">
-          <span>Начало периода</span>
-          <input type="number" id="periodStartDayInput" min="1" max="28" inputmode="numeric" />
+          <span>Плановый приход</span>
+          <input type="time" id="defaultPlannedArrivalInput" />
         </label>
         <label class="field">
           <span>Дорога по умолчанию</span>
           <input type="number" id="defaultCommuteInput" min="0" max="240" inputmode="numeric" />
         </label>
       </div>
+
+      <label class="field">
+        <span>Начало расчётного периода, число месяца</span>
+        <input type="number" id="periodStartDayInput" min="1" max="28" inputmode="numeric" />
+      </label>
 
       <div class="divider"></div>
       <div class="form-section-title">Резервная копия</div>
@@ -278,6 +370,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=2"></script>
 </body>
 </html>
