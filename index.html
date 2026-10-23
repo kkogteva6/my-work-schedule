@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=3" />
+  <link rel="stylesheet" href="styles.css?v=4" />
   <title>Мой график</title>
 </head>
 <body>
@@ -147,11 +147,9 @@
         </section>
 
         <div class="plans-section-heading">
-          <div>
-            <span class="label">Обычные дела</span>
-            <h2>Список по дням недели</h2>
-          </div>
-          <button class="secondary-button small-btn" id="addPlanBtn">+ Добавить</button>
+          <span class="label plans-kicker">Обычные дела</span>
+          <button class="secondary-button small-btn plans-add-btn" id="addPlanBtn">+ Добавить план</button>
+          <h2>Список по дням недели</h2>
         </div>
         <div id="plansList" class="plans-list"></div>
       </section>
@@ -236,7 +234,7 @@
   </dialog>
 
   <dialog id="weekPlanDialog" class="sheet-dialog">
-    <form method="dialog" id="weekPlanForm" class="sheet-content">
+    <form method="dialog" id="weekPlanForm" class="sheet-content compact-plan-sheet">
       <div class="sheet-handle"></div>
       <div class="sheet-header">
         <div>
@@ -370,6 +368,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="app.js?v=3"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>
