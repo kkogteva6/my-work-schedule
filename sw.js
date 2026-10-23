@@ -1,9 +1,9 @@
-const CACHE = 'my-work-schedule-v2';
+const CACHE = 'my-work-schedule-v3';
 const ASSETS = [
   './',
   './index.html',
-  './styles.css?v=2',
-  './app.js?v=2',
+  './styles.css?v=3',
+  './app.js?v=3',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png'
