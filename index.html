@@ -3,14 +3,16 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#F5F3EE" />
+  <meta name="theme-color" content="#F6F6F2" />
+  <meta name="description" content="Работа, учёба и время для себя. Планируй день и следи за балансом часов." />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Мой график" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=4" />
+  <link rel="stylesheet" href="styles.css?v=5" />
   <title>Мой график</title>
 </head>
 <body>
@@ -24,14 +26,24 @@
     </header>
 
     <main>
+      <div class="status-bar">
+        <button type="button" class="save-status" id="dataBtn"><span class="status-dot" aria-hidden="true"></span><span id="saveStatus" role="status">Открываем данные…</span></button>
+        <button type="button" class="text-button" id="undoBtn" hidden>Отменить</button>
+      </div>
+      <aside class="notice danger-notice" id="dataAlert" role="alert" hidden>
+        <strong>Данные требуют внимания</strong><p id="dataAlertText"></p>
+        <button type="button" class="secondary-button" id="alertDataBtn">Открыть восстановление</button>
+      </aside>
+      <button type="button" class="notice update-notice" id="updateBtn" hidden>Доступно обновление · установить</button>
       <section class="screen active" id="homeScreen" data-screen="home">
         <article class="hero-card">
+          <span class="hero-kicker">МОЙ РИТМ</span>
           <div class="hero-day" id="homeWeekday"></div>
           <p class="hero-quote" id="homeQuote"></p>
           <div class="hero-time" id="clockNow"></div>
         </article>
 
-        <section class="summary-grid">
+        <section class="summary-grid" aria-label="Главное за день">
           <article class="summary-card">
             <span class="label">Баланс периода</span>
             <strong id="periodBalance">0 мин</strong>
@@ -59,7 +71,7 @@
               <strong id="todayArrival">—</strong>
             </div>
             <div>
-              <span>Норма</span>
+              <span>Уйти по норме</span>
               <strong id="todayRequiredLeave">—</strong>
             </div>
             <div>
@@ -75,6 +87,16 @@
             <button class="secondary-button" id="leaveNowBtn">Я ушла</button>
           </div>
         </section>
+
+        <aside class="notice" id="incompleteCard" hidden>
+          <strong>Закроем прошлые дни?</strong><p id="incompleteText"></p>
+          <button type="button" class="text-button" id="incompleteBtn">Добавить время ухода →</button>
+        </aside>
+        <aside class="notice backup-notice" id="backupReminder" hidden>
+          <strong>Пусть история будет в безопасности</strong>
+          <p>Раз в неделю сохраняй копию вне приложения.</p>
+          <button type="button" class="text-button" id="backupReminderBtn">Сохранить копию →</button>
+        </aside>
 
         <section class="today-card compact" id="studyPreviewCard">
           <div class="section-heading">
@@ -122,6 +144,7 @@
           </div>
         </section>
 
+        <label class="schedule-filter"><input type="checkbox" id="showEmptyDays" /> Показывать пустые дни</label>
         <div id="scheduleList" class="schedule-list"></div>
       </section>
 
@@ -142,7 +165,7 @@
               <h2>Когда приходить и уходить</h2>
             </div>
           </div>
-          <p class="muted small-text week-helper">Нажми на день и укажи время пар или других планов. Время ухода посчитается само.</p>
+          <p class="muted small-text week-helper">Выбери день: укажи приход, время занятия и дорогу. Мы посчитаем, когда выходить.</p>
           <div id="weekPlannerList" class="week-planner-list"></div>
         </section>
 
@@ -156,16 +179,16 @@
     </main>
 
     <nav class="tabbar" aria-label="Основная навигация">
-      <button class="tab active" data-target="home">
-        <span class="tab-icon">⌂</span>
+      <button class="tab active" data-target="home" aria-current="page">
+        <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"/></svg></span>
         <span>Сегодня</span>
       </button>
       <button class="tab" data-target="schedule">
-        <span class="tab-icon">◷</span>
+        <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M7 3v4m10-4v4M3 11h18m-14 5h3m4 0h3"/></svg></span>
         <span>График</span>
       </button>
       <button class="tab" data-target="plans">
-        <span class="tab-icon">✓</span>
+        <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m3 6 2 2 4-4m3 2h9M3 12l2 2 4-4m3 2h9M3 18l2 2 4-4m3 2h9"/></svg></span>
         <span>Планы</span>
       </button>
     </nav>
@@ -199,6 +222,11 @@
         <span>Фактический уход</span>
         <input type="time" id="actualLeaveInput" />
       </label>
+      <div class="form-grid two">
+        <label class="field"><span>Норма этого дня, ч:мин</span><input type="text" id="dayNormInput" inputmode="text" placeholder="9:00" required /></label>
+        <label class="field"><span>Неоплачиваемый перерыв, мин</span><input type="number" id="breakInput" min="0" max="480" inputmode="numeric" value="0" /></label>
+      </div>
+      <p class="field-help">Для отпуска, праздника или выходного укажи норму 0:00. Работа сверх неё пойдёт в плюс. Норма сохраняется вместе с днём.</p>
 
       <div class="divider"></div>
 
@@ -316,11 +344,11 @@
       <div class="form-grid two">
         <label class="field">
           <span>Пн–Чт, ч</span>
-          <input type="text" id="regularDurationInput" inputmode="numeric" placeholder="9:00" />
+          <input type="text" id="regularDurationInput" inputmode="text" placeholder="9:00" />
         </label>
         <label class="field">
           <span>Пятница, ч</span>
-          <input type="text" id="fridayDurationInput" inputmode="numeric" placeholder="7:45" />
+          <input type="text" id="fridayDurationInput" inputmode="text" placeholder="7:45" />
         </label>
       </div>
 
@@ -351,23 +379,39 @@
         <input type="number" id="periodStartDayInput" min="1" max="28" inputmode="numeric" />
       </label>
 
-      <div class="divider"></div>
-      <div class="form-section-title">Резервная копия</div>
-      <p class="muted small-text">Данные хранятся на этом устройстве. Иногда сохраняй копию, чтобы не потерять историю.</p>
-      <div class="backup-actions">
-        <button type="button" class="secondary-button" id="exportBtn">Скачать копию</button>
-        <label class="secondary-button file-button">
-          Восстановить
-          <input type="file" id="importInput" accept="application/json" hidden />
-        </label>
-      </div>
+      <p class="field-help">Новые нормы применятся к незаполненным дням. Уже сохранённые дни сохранят свою норму. Изменение начала периода меняет группировку истории.</p>
+      <button type="button" class="data-link" id="settingsDataBtn">Данные и резервные копии <span aria-hidden="true">→</span></button>
 
       <button type="submit" class="primary-button full">Сохранить настройки</button>
     </form>
   </dialog>
 
+  <dialog id="dataDialog" class="sheet-dialog" aria-labelledby="dataTitle">
+    <div class="sheet-content">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header"><div><span class="label">Всё под контролем</span><h2 id="dataTitle">Твои данные</h2></div><button type="button" class="icon-button" id="closeDataBtn" aria-label="Закрыть">×</button></div>
+      <section class="data-health"><strong>Сохранение на устройстве</strong><p id="dataHealth" role="status"></p><p class="small-text" id="offlineStatus"></p></section>
+      <h3>Копия вне телефона</h3>
+      <p class="muted small-text" id="backupStatus"></p>
+      <div class="backup-actions"><button type="button" class="primary-button" id="exportBtn">Скачать копию</button><label class="secondary-button file-button" tabindex="0" role="button" id="importLabel">Открыть копию<input type="file" id="importInput" accept=".json,application/json" hidden /></label></div>
+      <p class="field-help">Копия содержит записи и заметки без шифрования. Сохрани её в личное облачное хранилище. Локальная история не защитит от потери телефона или очистки данных сайта.</p>
+      <details class="data-details"><summary>Дополнительная защита</summary><p class="small-text" id="persistStatus">Можно запросить защиту от автоматической очистки браузером.</p><button type="button" class="secondary-button full" id="persistBtn">Защитить локальное хранение</button><button type="button" class="text-button full" id="reloadBtn">Повторить запуск</button></details>
+      <h3>История изменений</h3><p class="field-help">До 30 предыдущих версий на этом устройстве. Выбери версию для просмотра и восстановления.</p>
+      <div id="historyList" class="history-list"></div>
+    </div>
+  </dialog>
+  <dialog id="importDialog" class="sheet-dialog" aria-labelledby="importTitle">
+    <div class="sheet-content compact-sheet">
+      <div class="sheet-handle"></div><div class="sheet-header"><h2 id="importTitle">Восстановить данные</h2><button type="button" class="icon-button" id="closeImportBtn" aria-label="Отмена">×</button></div>
+      <p id="importSummary"></p>
+      <p class="field-help">При объединении текущие записи и настройки имеют приоритет. При замене приложение станет таким, как в выбранной копии.</p>
+      <div class="restore-actions"><button type="button" class="primary-button" id="mergeImportBtn">Объединить с текущими</button><button type="button" class="secondary-button" id="replaceImportBtn">Заменить данными из копии</button></div>
+    </div>
+  </dialog>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="app.js?v=4"></script>
+  <script src="data.js?v=5"></script>
+  <script src="storage.js?v=5"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>

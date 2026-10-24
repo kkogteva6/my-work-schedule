@@ -1,5 +1,3 @@
-const STORAGE_KEY = 'my-work-schedule-v1';
-
 const DEFAULT_STATE = {
   settings: {
     regularMinutes: 540,
@@ -38,7 +36,17 @@ const QUOTES = {
   6: ['Суббота. Рабочий баланс сегодня отдыхает', 'Никаких долгов по часам. Только отдых']
 };
 
-let state = loadState();
+let state = ScheduleData.normalize(DEFAULT_STATE);
+const store = new ScheduleStore();
+let lastSaved = structuredClone(state);
+let saving = false;
+let ready = false;
+let failedDraft = null;
+let undoState = null;
+let undoRevision = null;
+let pendingImport = null;
+let importReason = 'Импорт копии';
+let lastBackup = null;
 let shownPeriodStart = getPeriodStart(new Date());
 let shownPlanWeekStart = weekStart(new Date());
 let shownCalendarMonth = monthStart(new Date());
@@ -46,24 +54,36 @@ let toastTimer = null;
 
 const $ = (id) => document.getElementById(id);
 
-function loadState() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (!saved) return structuredClone(DEFAULT_STATE);
-    return {
-      settings: { ...DEFAULT_STATE.settings, ...(saved.settings || {}) },
-      entries: saved.entries || {},
-      weekPlans: saved.weekPlans || {},
-      planTemplates: saved.planTemplates || [],
-      planCompletions: saved.planCompletions || {}
-    };
-  } catch {
-    return structuredClone(DEFAULT_STATE);
+async function saveState(reason = 'Изменение данных', recovery = false) {
+  if (saving || (!ready && !recovery)) {
+    state = structuredClone(lastSaved);
+    showToast('Сохранение недоступно. Открой раздел «Данные».');
+    return false;
   }
-}
-
-function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  saving = true;
+  $('saveStatus').textContent = 'Сохраняем…';
+  const previous = structuredClone(lastSaved);
+  try {
+    state = await store.commit(state, reason);
+    lastSaved = structuredClone(state);
+    undoState = previous;
+    undoRevision = store.revision;
+    ready = true;
+    failedDraft = null;
+    $('dataAlert').hidden = true;
+    $('undoBtn').hidden = false;
+    renderDataStatus();
+    return true;
+  } catch (error) {
+    failedDraft = structuredClone(state);
+    state = previous;
+    showDataError(error.message);
+    showToast('Изменения не сохранены. Поля формы можно исправить и повторить.');
+    renderAll();
+    return false;
+  } finally {
+    saving = false;
+  }
 }
 
 function pad(n) { return String(n).padStart(2, '0'); }
@@ -96,7 +116,7 @@ function shiftMonth(date, amount) {
 }
 
 function minutesFromTime(time) {
-  if (!time || !/^\d{2}:\d{2}$/.test(time)) return null;
+  if (!time || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return null;
   const [h, m] = time.split(':').map(Number);
   return h * 60 + m;
 }
@@ -104,7 +124,8 @@ function minutesFromTime(time) {
 function timeFromMinutes(total) {
   if (total == null || Number.isNaN(total)) return '—';
   const normalized = ((total % 1440) + 1440) % 1440;
-  return `${pad(Math.floor(normalized / 60))}:${pad(normalized % 60)}`;
+  const offset = Math.floor(total / 1440);
+  return `${pad(Math.floor(normalized / 60))}:${pad(normalized % 60)}${offset ? ` (${offset > 0 ? '+' : ''}${offset} дн.)` : ''}`;
 }
 
 function formatDuration(minutes) {
@@ -136,6 +157,8 @@ function parseDuration(value) {
 }
 
 function requiredMinutesForDate(date) {
+  const fixed = state.entries[isoDate(date)]?.requiredMinutes;
+  if (fixed != null) return fixed;
   const day = date.getDay();
   if (day === 0 || day === 6) return 0;
   if (day === 5) return state.settings.fridayMinutes;
@@ -146,8 +169,8 @@ function requiredLeave(date, arrival) {
   const start = minutesFromTime(arrival);
   if (start == null) return null;
   const required = requiredMinutesForDate(date);
-  if (!required) return null;
-  return start + required;
+  const pause = state.entries[isoDate(date)]?.breakMinutes || 0;
+  return start + required + pause;
 }
 
 function plannedLeave(plan) {
@@ -179,10 +202,10 @@ function planDelta(date, plan) {
 
 function entryDelta(date, entry) {
   if (!entry?.arrival || !entry?.actualLeave) return null;
-  const req = requiredLeave(date, entry.arrival);
+  const start = minutesFromTime(entry.arrival);
   const actual = minutesFromTime(entry.actualLeave);
-  if (req == null || actual == null) return null;
-  return actual - req;
+  if (start == null || actual == null || actual < start) return null;
+  return actual - start - (entry.breakMinutes || 0) - (entry.requiredMinutes ?? requiredMinutesForDate(date));
 }
 
 function getPeriodStart(date) {
@@ -243,10 +266,11 @@ function weekStart(date = new Date()) {
 
 function showToast(text) {
   const el = $('toast');
+  (document.querySelector('dialog[open]') || document.body).appendChild(el);
   el.textContent = text;
   el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 6500);
 }
 
 function setBalanceStyle(element, value) {
@@ -300,6 +324,11 @@ function renderHome() {
   $('todayArrival').textContent = entry.arrival || '—';
   $('todayRequiredLeave').textContent = req == null ? '—' : timeFromMinutes(req);
   $('todayActualLeave').textContent = entry.actualLeave || '—';
+  $('arriveNowBtn').disabled = Boolean(entry.arrival) || !ready;
+  $('arriveNowBtn').textContent = entry.arrival ? `Приход ${entry.arrival} ✓` : 'Я пришла';
+  $('leaveNowBtn').disabled = !entry.arrival || Boolean(entry.actualLeave) || !ready;
+  $('leaveNowBtn').textContent = entry.actualLeave ? `Уход ${entry.actualLeave} ✓` : 'Я ушла';
+  $('homeQuote').textContent = entry.actualLeave ? 'Рабочий день завершён. Время для себя.' : entry.arrival ? 'Работа идёт. Оставим время на важное.' : plan.mustBeAt ? `Сегодня есть планы. Поможем успеть к ${plan.mustBeAt}.` : 'Работа, учёба и время для себя — в одном месте.';
 
   const pLeave = plannedLeave(plan);
   if (plan.mustBeAt && pLeave != null) {
@@ -319,7 +348,7 @@ function renderHome() {
   if (arrivalForCalc && !entry.actualLeave && requiredMinutesForDate(today)) {
     const balanceBeforeToday = periodBalance(currentPeriod, key);
     const normal = requiredLeave(today, arrivalForCalc);
-    const zeroBalanceLeave = normal - balanceBeforeToday;
+    const zeroBalanceLeave = Math.max(minutesFromTime(arrivalForCalc), normal - balanceBeforeToday);
     let text;
 
     if (entry.arrival) {
@@ -340,6 +369,8 @@ function renderHome() {
       if (dayChange !== 0) text += ` (${formatSigned(dayChange)} за день)`;
     }
 
+    if (zeroBalanceLeave > minutesFromTime(state.settings.latest)) text += ' · весь долг не поместится в рабочий день — распредели его на другие дни';
+    if (pLeave != null && pLeave < minutesFromTime(arrivalForCalc)) text += ' · план пересекается с началом работы: проверь время';
     smart.textContent = text;
     smart.hidden = false;
   }
@@ -380,8 +411,9 @@ function renderCalendar() {
     if (delta != null) button.classList.add(delta > 0 ? 'positive' : delta < 0 ? 'negative' : 'neutral');
     if (entry.arrival && !entry.actualLeave) button.classList.add('partial');
     if (hasStudyPlan) button.classList.add('has-plan');
-    button.setAttribute('aria-label', `${formatDateLong(date)}${delta == null ? '' : `, ${formatSigned(delta)}`}`);
-    button.innerHTML = `<span class="calendar-number">${day}</span>${hasStudyPlan ? '<i class="study-marker"></i>' : ''}`;
+    button.setAttribute('aria-label', `${formatDateLong(date)}${delta == null ? '' : `, ${formatSigned(delta)}`}${hasStudyPlan ? ', есть план' : ''}${entry.arrival && !entry.actualLeave ? ', не указан уход' : ''}`);
+    if (key === todayKey) button.setAttribute('aria-current','date');
+    button.innerHTML = `<span class="calendar-number">${day}</span>${delta ? `<span class="calendar-sign" aria-hidden="true">${delta > 0 ? '+' : '−'}</span>` : ''}${hasStudyPlan ? '<i class="study-marker" aria-hidden="true"></i>' : ''}`;
     button.addEventListener('click', () => openCalendarDay(key));
     grid.appendChild(button);
   }
@@ -411,6 +443,7 @@ function renderSchedule() {
     const key = isoDate(date);
     const entry = state.entries[key] || null;
     const weeklyPlan = state.weekPlans[key] || null;
+    if (!$('showEmptyDays').checked && !entry && !weeklyPlan) continue;
     const plan = getEffectivePlan(key, entry || {});
     const weekend = date.getDay() === 0 || date.getDay() === 6;
     if (weekend && !entry && !weeklyPlan) continue;
@@ -433,9 +466,9 @@ function renderSchedule() {
     const arrivalText = entry?.arrival || plan.plannedArrival || '—';
     const arrivalLabel = entry?.arrival ? 'Приход' : plan.plannedArrival ? 'Приход · план' : 'Приход';
     const planText = plan.mustBeAt
-      ? `${escapeHtml(plan.destination || 'После работы')} · быть к ${plan.mustBeAt}${pLeave != null ? ` · уйти до ${timeFromMinutes(pLeave)}` : ''}`
+      ? `${escapeHtml(plan.destination || 'После работы')} · быть к ${escapeHtml(plan.mustBeAt)}${pLeave != null ? ` · уйти до ${timeFromMinutes(pLeave)}` : ''}`
       : weeklyPlan?.plannedArrival
-        ? `Плановый приход ${weeklyPlan.plannedArrival}${req != null ? ` · по норме до ${timeFromMinutes(req)}` : ''}`
+        ? `Плановый приход ${escapeHtml(weeklyPlan.plannedArrival)}${req != null ? ` · по норме до ${timeFromMinutes(req)}` : ''}`
         : '';
 
     card.innerHTML = `
@@ -445,20 +478,26 @@ function renderSchedule() {
       </div>
       ${hasAnyData ? `
         <div class="day-times">
-          <div><span>${arrivalLabel}</span><strong>${arrivalText}</strong></div>
+          <div><span>${arrivalLabel}</span><strong>${escapeHtml(arrivalText)}</strong></div>
           <div><span>Норма</span><strong>${req == null ? '—' : timeFromMinutes(req)}</strong></div>
           <div><span>План</span><strong>${pLeave == null ? '—' : timeFromMinutes(pLeave)}</strong></div>
-          <div><span>Уход</span><strong>${entry?.actualLeave || '—'}</strong></div>
+          <div><span>Уход</span><strong>${escapeHtml(entry?.actualLeave || '—')}</strong></div>
         </div>
         ${planText ? `<div class="day-plan">${planText}</div>` : ''}
       ` : `<div class="empty-day">Нажми, чтобы заполнить день</div>`}
     `;
 
-    card.addEventListener('click', () => {
+    card.addEventListener('click', async () => {
       if (date > today && weeklyPlan) openWeekPlanDialog(key);
       else openEntryDialog(key);
     });
     list.appendChild(card);
+  }
+  if (!list.children.length) {
+    const empty = document.createElement('p');
+    empty.className = 'notice';
+    empty.textContent = 'В этом периоде пока нет записей. Выбери день в календаре, чтобы добавить первую.';
+    list.appendChild(empty);
   }
 }
 
@@ -467,7 +506,7 @@ function renderWeekPlanner() {
   root.innerHTML = '';
   const today = dateOnly(new Date());
 
-  for (let offset = 0; offset < 5; offset += 1) {
+  for (let offset = 0; offset < 7; offset += 1) {
     const date = addDays(shownPlanWeekStart, offset);
     const key = isoDate(date);
     const plan = state.weekPlans[key] || {};
@@ -507,6 +546,10 @@ function renderWeekPlanner() {
       const actualDelta = entryDelta(date, entry);
       badge = actualDelta == null ? 'заполнено' : formatSigned(actualDelta);
       badgeClass = actualDelta > 0 ? 'positive' : actualDelta < 0 ? 'negative' : 'neutral';
+      if (!hasPlan) {
+        mainText = 'Рабочий день учтён';
+        subText = `${entry.arrival || '—'} — ${entry.actualLeave}`;
+      }
     }
 
     row.innerHTML = `
@@ -545,24 +588,24 @@ function renderPlans() {
     block.innerHTML = `<h3>${dayInfo.label}</h3>`;
 
     tasks.forEach(task => {
-      const row = document.createElement('label');
+      const row = document.createElement('div');
       row.className = `plan-item${completions[task.id] ? ' done' : ''}`;
       row.innerHTML = `
-        <input type="checkbox" ${completions[task.id] ? 'checked' : ''} />
-        <span>${escapeHtml(task.text)}</span>
+        <input type="checkbox" id="task-${task.id}" ${completions[task.id] ? 'checked' : ''} />
+        <label for="task-${task.id}"><span>${escapeHtml(task.text)}</span></label>
         <button type="button" class="plan-delete" aria-label="Удалить">×</button>
       `;
-      row.querySelector('input').addEventListener('change', (e) => {
+      row.querySelector('input').addEventListener('change', async (e) => {
         state.planCompletions[weekKey] = state.planCompletions[weekKey] || {};
         state.planCompletions[weekKey][task.id] = e.target.checked;
-        saveState();
+        if (!(await saveState('Отметка дела'))) return false;
         renderPlans();
       });
-      row.querySelector('.plan-delete').addEventListener('click', (e) => {
+      row.querySelector('.plan-delete').addEventListener('click', async (e) => {
         e.preventDefault();
         state.planTemplates = state.planTemplates.filter(t => t.id !== task.id);
         Object.values(state.planCompletions).forEach(obj => delete obj[task.id]);
-        saveState();
+        if (!(await saveState('Удаление дела'))) return false;
         renderPlans();
         showToast('План удалён');
       });
@@ -581,6 +624,7 @@ function renderAll() {
   renderHome();
   renderSchedule();
   renderPlans();
+  renderIncomplete();
 }
 
 function openEntryDialog(key) {
@@ -595,6 +639,8 @@ function openEntryDialog(key) {
   $('commuteInput').value = entry.commuteMinutes ?? plan.commuteMinutes ?? state.settings.defaultCommute;
   $('destinationInput').value = entry.destination || plan.destination || '';
   $('noteInput').value = entry.note || '';
+  $('dayNormInput').value = durationText(entry.requiredMinutes ?? requiredMinutesForDate(date));
+  $('breakInput').value = entry.breakMinutes || 0;
   $('entryValidation').hidden = true;
   updateEntryPreview();
   $('entryDialog').showModal();
@@ -605,7 +651,9 @@ function updateEntryPreview() {
   if (!key) return;
   const date = fromIso(key);
   const arrival = $('arrivalInput').value;
-  const req = requiredLeave(date, arrival);
+  const start = minutesFromTime(arrival);
+  const norm = parseDuration($('dayNormInput').value);
+  const req = start == null || norm == null ? null : start + norm + Number($('breakInput').value || 0);
   $('requiredLeavePreview').textContent = req == null ? (requiredMinutesForDate(date) ? '—' : 'Выходной') : timeFromMinutes(req);
 
   const must = minutesFromTime($('mustBeAtInput').value);
@@ -618,6 +666,12 @@ function validateEntry() {
   const leave = minutesFromTime($('actualLeaveInput').value);
   const messages = [];
   let blocking = false;
+  const norm = parseDuration($('dayNormInput').value);
+  const pause = Number($('breakInput').value || 0);
+  if (norm == null || norm > 1439) { messages.push('Норма дня: от 0:00 до 23:59'); blocking = true; }
+  if (!Number.isInteger(pause) || pause < 0 || pause > 480 || (arrival != null && leave != null && pause > leave - arrival)) {
+    messages.push('Проверь длительность перерыва'); blocking = true;
+  }
 
   if (arrival != null && leave != null && leave < arrival) {
     messages.push('Время ухода не может быть раньше времени прихода');
@@ -634,7 +688,7 @@ function validateEntry() {
   return !blocking;
 }
 
-function saveEntryFromDialog() {
+async function saveEntryFromDialog() {
   if (!validateEntry()) return false;
   const key = $('entryDate').value;
   const data = {
@@ -643,12 +697,12 @@ function saveEntryFromDialog() {
     mustBeAt: $('mustBeAtInput').value,
     commuteMinutes: Number($('commuteInput').value || state.settings.defaultCommute),
     destination: $('destinationInput').value.trim(),
-    note: $('noteInput').value.trim()
+    note: $('noteInput').value.trim(),
+    requiredMinutes: parseDuration($('dayNormInput').value),
+    breakMinutes: Number($('breakInput').value || 0)
   };
-  const hasData = Object.entries(data).some(([k, v]) => k === 'commuteMinutes' ? false : Boolean(v));
-  if (hasData) state.entries[key] = data;
-  else delete state.entries[key];
-  saveState();
+  state.entries[key] = data;
+  if (!(await saveState('Запись дня'))) return false;
   renderAll();
   return true;
 }
@@ -696,7 +750,7 @@ function updateWeekPlanPreview() {
   $('weekPlanDeltaText').textContent = text;
 }
 
-function saveWeekPlanFromDialog() {
+async function saveWeekPlanFromDialog() {
   const key = $('weekPlanDate').value;
   const plan = {
     plannedArrival: $('plannedArrivalInput').value,
@@ -707,16 +761,23 @@ function saveWeekPlanFromDialog() {
   const hasData = Boolean(plan.plannedArrival || plan.mustBeAt || plan.destination);
   if (hasData) state.weekPlans[key] = plan;
   else delete state.weekPlans[key];
-  saveState();
+  if (!(await saveState('План дня'))) return false;
   renderAll();
+  return true;
 }
 
-function markNow(field) {
+async function markNow(field) {
   const now = new Date();
   const key = isoDate(now);
+  if (!ready || state.entries[key]?.[field]) return;
+  const currentTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  if (field === 'actualLeave' && (!state.entries[key]?.arrival || currentTime < state.entries[key].arrival)) {
+    showToast('Сначала проверь время прихода в записи дня');
+    return;
+  }
   state.entries[key] = state.entries[key] || { commuteMinutes: state.settings.defaultCommute };
   state.entries[key][field] = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-  saveState();
+  if (!(await saveState())) return false;
   renderAll();
   showToast(field === 'arrival' ? 'Приход отмечен' : 'Уход отмечен');
 }
@@ -732,50 +793,49 @@ function openSettings() {
   $('settingsDialog').showModal();
 }
 
-function exportBackup() {
-  const payload = {
-    app: 'Мой график',
-    version: 2,
-    exportedAt: new Date().toISOString(),
-    data: state
-  };
+function downloadJson(payload, name) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `moy-grafik-backup-${isoDate(new Date())}.json`;
+  a.download = name;
   document.body.appendChild(a);
   a.click();
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  showToast('Резервная копия создана');
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 
-function importBackup(file) {
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      const parsed = JSON.parse(reader.result);
-      const data = parsed.data || parsed;
-      if (!data.settings || !data.entries) throw new Error('bad format');
-      state = {
-        settings: { ...DEFAULT_STATE.settings, ...data.settings },
-        entries: data.entries || {},
-        weekPlans: data.weekPlans || {},
-        planTemplates: data.planTemplates || [],
-        planCompletions: data.planCompletions || {}
-      };
-      saveState();
-      shownPeriodStart = getPeriodStart(new Date());
-      shownPlanWeekStart = weekStart(new Date());
-      shownCalendarMonth = monthStart(new Date());
-      renderAll();
-      showToast('Данные восстановлены');
-    } catch {
-      showToast('Не удалось прочитать копию');
-    }
-  };
-  reader.readAsText(file);
+async function exportBackup() {
+  if (!ready && !failedDraft) {
+    if (store.raw) downloadJson({ original: store.raw }, `grafik-recovery-${isoDate(new Date())}.json`);
+    else showToast('Нет доступных данных для выгрузки');
+    return;
+  }
+  downloadJson({ app: 'Мой график', version: 3, exportedAt: new Date().toISOString(), data: failedDraft || state }, `moy-grafik-backup-${isoDate(new Date())}.json`);
+  showToast('Копия передана браузеру. Проверь файл в загрузках.');
+  // Browser download dispatch does not prove that a file has been saved by the user.
+  if (!failedDraft) {
+    lastBackup = new Date().toISOString();
+    try { await store.setMeta('lastExport',lastBackup); } catch { /* Export remains usable. */ }
+    renderDataStatus();
+  }
+}
+
+async function importBackup(file) {
+  try {
+    if (file.size > 8 * 1024 * 1024) throw new Error('Копия слишком большая. Максимум 8 МБ.');
+    pendingImport = ScheduleData.parseBackup(await file.text());
+    importReason = 'Импорт копии';
+    previewImport();
+  } catch (error) {
+    showToast(`Не удалось открыть копию: ${error.message}`);
+  }
+}
+
+function previewImport() {
+  $('importSummary').textContent = `В копии: ${Object.keys(pendingImport.entries).length} дней, ${Object.keys(pendingImport.weekPlans).length} планов и ${pendingImport.planTemplates.length} дел. Перед восстановлением текущая версия останется в истории.`;
+  $('mergeImportBtn').hidden = !ready;
+  $('importDialog').showModal();
 }
 
 function openCalendarDay(key) {
@@ -787,8 +847,8 @@ function openCalendarDay(key) {
 
 function initEvents() {
   document.querySelectorAll('.tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === tab));
+    tab.addEventListener('click', async () => {
+      document.querySelectorAll('.tab').forEach(t => { t.classList.toggle('active', t === tab); if (t === tab) t.setAttribute('aria-current','page'); else t.removeAttribute('aria-current'); });
       document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.dataset.screen === tab.dataset.target));
       const titles = { home: 'Сегодня', schedule: 'График', plans: 'Планы' };
       $('screenTitle').textContent = titles[tab.dataset.target];
@@ -797,6 +857,7 @@ function initEvents() {
   });
 
   $('settingsBtn').addEventListener('click', openSettings);
+  $('showEmptyDays').addEventListener('change', renderSchedule);
   $('closeSettingsBtn').addEventListener('click', () => $('settingsDialog').close());
   $('closeEntryBtn').addEventListener('click', () => $('entryDialog').close());
   $('closeWeekPlanBtn').addEventListener('click', () => $('weekPlanDialog').close());
@@ -809,60 +870,60 @@ function initEvents() {
   ['arrivalInput', 'mustBeAtInput', 'commuteInput'].forEach(id => $(id).addEventListener('input', updateEntryPreview));
   ['arrivalInput', 'actualLeaveInput'].forEach(id => $(id).addEventListener('input', validateEntry));
 
-  $('entryForm').addEventListener('submit', (e) => {
+  $('entryForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    if (saveEntryFromDialog()) {
+    if (await saveEntryFromDialog()) {
       $('entryDialog').close();
       showToast('День сохранён');
     }
   });
 
-  $('deleteEntryBtn').addEventListener('click', () => {
+  $('deleteEntryBtn').addEventListener('click', async () => {
     const key = $('entryDate').value;
     delete state.entries[key];
-    saveState();
+    if (!(await saveState('Удаление дня'))) return false;
     renderAll();
     $('entryDialog').close();
     showToast('День очищен');
   });
 
-  $('prevPeriodBtn').addEventListener('click', () => {
+  $('prevPeriodBtn').addEventListener('click', async () => {
     shownPeriodStart = shiftPeriod(shownPeriodStart, -1);
     renderSchedule();
   });
-  $('nextPeriodBtn').addEventListener('click', () => {
+  $('nextPeriodBtn').addEventListener('click', async () => {
     const next = shiftPeriod(shownPeriodStart, 1);
     const current = getPeriodStart(new Date());
     if (next <= current) shownPeriodStart = next;
     renderSchedule();
   });
-  $('periodPickerBtn').addEventListener('click', () => {
+  $('periodPickerBtn').addEventListener('click', async () => {
     shownPeriodStart = getPeriodStart(new Date());
     renderSchedule();
   });
 
-  $('prevMonthBtn').addEventListener('click', () => {
+  $('prevMonthBtn').addEventListener('click', async () => {
     shownCalendarMonth = shiftMonth(shownCalendarMonth, -1);
     renderCalendar();
   });
-  $('nextMonthBtn').addEventListener('click', () => {
+  $('nextMonthBtn').addEventListener('click', async () => {
     shownCalendarMonth = shiftMonth(shownCalendarMonth, 1);
     renderCalendar();
   });
-  $('calendarTodayBtn').addEventListener('click', () => {
+  $('calendarTodayBtn').addEventListener('click', async () => {
     shownCalendarMonth = monthStart(new Date());
     renderCalendar();
   });
 
-  $('prevWeekBtn').addEventListener('click', () => {
+  $('prevWeekBtn').addEventListener('click', async () => {
     shownPlanWeekStart = addDays(shownPlanWeekStart, -7);
     renderPlans();
   });
-  $('nextWeekBtn').addEventListener('click', () => {
+  $('nextWeekBtn').addEventListener('click', async () => {
     shownPlanWeekStart = addDays(shownPlanWeekStart, 7);
     renderPlans();
   });
-  $('currentWeekBtn').addEventListener('click', () => {
+  $('currentWeekBtn').addEventListener('click', async () => {
     shownPlanWeekStart = weekStart(new Date());
     renderPlans();
   });
@@ -870,44 +931,47 @@ function initEvents() {
   ['plannedArrivalInput', 'weekMustBeAtInput', 'weekCommuteInput', 'weekDestinationInput'].forEach(id => {
     $(id).addEventListener('input', updateWeekPlanPreview);
   });
-  $('weekPlanForm').addEventListener('submit', (e) => {
+  $('weekPlanForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    saveWeekPlanFromDialog();
+    if (!(await saveWeekPlanFromDialog())) return;
     $('weekPlanDialog').close();
     showToast('План дня сохранён');
   });
-  $('deleteWeekPlanBtn').addEventListener('click', () => {
+  $('deleteWeekPlanBtn').addEventListener('click', async () => {
     const key = $('weekPlanDate').value;
     delete state.weekPlans[key];
-    saveState();
+    if (!(await saveState('Удаление плана'))) return false;
     renderAll();
     $('weekPlanDialog').close();
     showToast('План дня очищен');
   });
 
-  $('addPlanBtn').addEventListener('click', () => {
+  $('addPlanBtn').addEventListener('click', async () => {
     $('planTextInput').value = '';
     $('planDayInput').value = String(new Date().getDay());
     $('planDialog').showModal();
   });
-  $('planForm').addEventListener('submit', (e) => {
+  $('planForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const text = $('planTextInput').value.trim();
     if (!text) return;
     state.planTemplates.push({ id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`, day: Number($('planDayInput').value), text });
-    saveState();
+    if (!(await saveState('Добавление дела'))) return false;
     renderPlans();
     $('planDialog').close();
     showToast('План добавлен');
   });
 
-  $('settingsForm').addEventListener('submit', (e) => {
+  $('settingsForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const regular = parseDuration($('regularDurationInput').value);
     const friday = parseDuration($('fridayDurationInput').value);
-    if (regular == null || friday == null) {
-      showToast('Проверь длительность: например 9:00 и 7:45');
+    if (regular == null || friday == null || regular > 1439 || friday > 1439) {
+      showToast('Длительность — от 0:00 до 23:59, например 9:00');
       return;
+    }
+    if (($('earliestInput').value || '07:00') >= ($('latestInput').value || '21:00')) {
+      showToast('Начало рабочего дня должно быть раньше его окончания'); return;
     }
     state.settings.regularMinutes = regular;
     state.settings.fridayMinutes = friday;
@@ -916,7 +980,7 @@ function initEvents() {
     state.settings.periodStartDay = Math.max(1, Math.min(28, Number($('periodStartDayInput').value || 20)));
     state.settings.defaultCommute = Math.max(0, Math.min(240, Number($('defaultCommuteInput').value || 0)));
     state.settings.defaultPlannedArrival = $('defaultPlannedArrivalInput').value || '07:30';
-    saveState();
+    if (!(await saveState('Настройки графика'))) return false;
     shownPeriodStart = getPeriodStart(new Date());
     renderAll();
     $('settingsDialog').close();
@@ -924,7 +988,7 @@ function initEvents() {
   });
 
   $('exportBtn').addEventListener('click', exportBackup);
-  $('importInput').addEventListener('change', (e) => {
+  $('importInput').addEventListener('change', async (e) => {
     if (e.target.files?.[0]) importBackup(e.target.files[0]);
     e.target.value = '';
   });
@@ -935,11 +999,173 @@ function initPlanDays() {
 }
 
 function initServiceWorker() {
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('./sw.js').then(reg => {
+    const offer = () => {
+      if (reg.waiting && navigator.serviceWorker.controller) {
+        $('updateBtn').hidden = false;
+        $('updateBtn').onclick = async () => {
+          if (saving || failedDraft || document.querySelector('dialog[open]')) {
+            showToast('Сначала сохрани изменения и закрой открытое окно'); return;
+          }
+          reg.waiting.postMessage({type:'SKIP_WAITING'});
+        };
+      }
+    };
+    offer();
+    reg.addEventListener('updatefound', () => reg.installing?.addEventListener('statechange', offer));
+  }).catch(() => {
+    $('offlineStatus').textContent = 'Офлайн-режим недоступен: проверь соединение и адрес сайта';
+  });
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!reloading) { reloading = true; location.reload(); }
+  });
 }
 
-initPlanDays();
-initEvents();
-renderAll();
-initServiceWorker();
-setInterval(renderHome, 30000);
+function showDataError(message) {
+  $('dataAlert').hidden = false;
+  $('dataAlertText').textContent = message;
+  $('saveStatus').textContent = 'Есть проблема с сохранением';
+  $('saveStatus').classList.add('error');
+  $('dataHealth').textContent = message;
+}
+
+function renderDataStatus() {
+  const format = value => new Date(value).toLocaleString('ru-RU', {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+  $('saveStatus').textContent = failedDraft ? 'Есть несохранённые изменения' : ready ? 'Сохранено на устройстве' : 'Хранилище недоступно';
+  $('saveStatus').classList.toggle('error', !ready || Boolean(failedDraft));
+  $('dataHealth').textContent = store.savedAt ? `Последнее сохранение: ${format(store.savedAt)}. Предыдущие 30 версий доступны в истории.` : 'Нет сохранённой версии';
+  $('backupStatus').textContent = lastBackup ? `Последняя выгрузка: ${format(lastBackup)}. Проверь, что файл сохранён.` : 'Внешней копии пока нет. Сохрани её в «Файлы», iCloud Drive или Google Drive.';
+  const due = !lastBackup || Date.now() - new Date(lastBackup).getTime() > 7*86400000;
+  $('backupReminder').hidden = !due || !Object.keys(state.entries).length;
+}
+
+function renderIncomplete() {
+  const today = isoDate(new Date());
+  const keys = Object.keys(state.entries).filter(k => k < today && state.entries[k].arrival && !state.entries[k].actualLeave).sort().reverse();
+  $('incompleteCard').hidden = keys.length === 0;
+  $('incompleteText').textContent = `Без времени ухода: ${keys.length}. Начнём с ${keys.length ? formatDateLong(fromIso(keys[0])) : ''}.`;
+  $('incompleteBtn').onclick = () => keys.length && openEntryDialog(keys[0]);
+}
+
+async function openData() {
+  $('dataDialog').showModal();
+  renderDataStatus();
+  if (failedDraft) $('dataHealth').textContent = 'Последнее изменение не сохранено. Скачай копию перед перезагрузкой.';
+  $('historyList').replaceChildren();
+  try {
+    if (!store.db) throw new Error('История сейчас недоступна');
+    const history = await store.history();
+    if (!history.length) $('historyList').textContent = 'История появится после первого изменения.';
+    history.forEach(item => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'history-item';
+      const label = new Date(item.savedAt).toLocaleString('ru-RU');
+      button.textContent = `${label} · до действия «${item.reason}» →`;
+      button.addEventListener('click', () => {
+        try {
+          if (item.raw) {
+            downloadJson({original:item.raw},'grafik-original-recovery.json');
+            return;
+          }
+          pendingImport = ScheduleData.normalize(item.state);
+          importReason = 'Восстановление из истории';
+          previewImport();
+        } catch { downloadJson(item,'grafik-damaged-version.json'); showToast('Эта версия повреждена. Исходник передан в загрузки для восстановления.'); }
+      });
+      $('historyList').appendChild(button);
+    });
+  } catch (error) { $('historyList').textContent = error.message; }
+}
+
+async function restoreImport(merge) {
+  if (!pendingImport || saving) return;
+  try {
+    state = merge ? ScheduleData.merge(lastSaved,pendingImport) : structuredClone(pendingImport);
+  } catch (error) {
+    showToast(`Не удалось объединить данные: ${error.message}`);
+    return;
+  }
+  if (!(await saveState(importReason,true))) return;
+  pendingImport = null;
+  shownPeriodStart = getPeriodStart(new Date());
+  shownPlanWeekStart = weekStart(new Date());
+  shownCalendarMonth = monthStart(new Date());
+  $('importDialog').close();
+  renderAll();
+  showToast('Данные восстановлены. Предыдущая версия сохранена в истории.');
+  if ($('dataDialog').open) { $('dataDialog').close(); openData(); }
+}
+
+function initDataEvents() {
+  for (const id of ['dataBtn','alertDataBtn','backupReminderBtn','settingsDataBtn']) $(id).addEventListener('click', openData);
+  $('closeDataBtn').addEventListener('click', () => $('dataDialog').close());
+  $('importLabel').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('importInput').click(); } });
+  $('closeImportBtn').addEventListener('click', () => { pendingImport = null; $('importDialog').close(); });
+  $('mergeImportBtn').addEventListener('click', () => restoreImport(true));
+  $('replaceImportBtn').addEventListener('click', () => restoreImport(false));
+  $('reloadBtn').addEventListener('click', () => {
+    if (failedDraft) { showToast('Сначала скачай несохранённую копию. После этого повтори запуск вручную.'); return; }
+    location.reload();
+  });
+  $('persistBtn').addEventListener('click', async () => {
+    try {
+      const persistent = await navigator.storage?.persist?.();
+      $('persistStatus').textContent = persistent ? 'Защита от автоматической очистки включена. Внешние копии всё равно нужны.' : 'Браузер не предоставил защиту. Установи приложение на главный экран и сохраняй внешние копии.';
+    } catch { $('persistStatus').textContent = 'Защита недоступна в этом браузере. Сохраняй внешние копии.'; }
+  });
+  $('undoBtn').addEventListener('click', async () => {
+    if (!undoState || undoRevision !== store.revision) return;
+    state = structuredClone(undoState);
+    if (await saveState('Отмена последнего действия')) {
+      undoState = null;
+      $('undoBtn').hidden = true;
+      renderAll();
+      showToast('Последнее действие отменено');
+    }
+  });
+  ['dayNormInput','breakInput'].forEach(id => $(id).addEventListener('input', () => { updateEntryPreview(); validateEntry(); }));
+  // Prevent overlapping mutations while an asynchronous transaction is running.
+  for (const type of ['click','change','submit']) document.addEventListener(type, e => {
+    if (saving) { e.preventDefault(); e.stopImmediatePropagation(); }
+  }, true);
+  window.addEventListener('beforeunload', e => {
+    if (saving || failedDraft) { e.preventDefault(); e.returnValue = ''; }
+  });
+  window.addEventListener('online', renderConnection);
+  window.addEventListener('offline', renderConnection);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && ready) renderAll(); });
+}
+
+function renderConnection() {
+  $('offlineStatus').textContent = navigator.onLine ? 'Локальное приложение · облачная синхронизация не подключена' : 'Без интернета · изменения сохраняются на устройстве';
+}
+
+async function boot() {
+  initPlanDays();
+  initEvents();
+  initDataEvents();
+  try {
+    state = await store.open();
+    lastSaved = structuredClone(state);
+    ready = true;
+    lastBackup = (await store.get('records','lastExport'))?.value || null;
+    shownPeriodStart = getPeriodStart(new Date());
+    renderDataStatus();
+  } catch (error) {
+    showDataError(`Не удалось открыть сохранённые данные. Исходная запись не удалена. Открой «Данные» для восстановления. ${error.message}`);
+  }
+  renderAll();
+  renderConnection();
+  initServiceWorker();
+  let renderedDate = isoDate(new Date());
+  setInterval(() => {
+    if (!ready) return;
+    const current = isoDate(new Date());
+    if (current !== renderedDate) { renderedDate = current; renderAll(); } else renderHome();
+  }, 30000);
+}
+
+boot();

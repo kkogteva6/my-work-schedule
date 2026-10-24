@@ -1,52 +1,29 @@
-const CACHE = 'my-work-schedule-v4';
-const ASSETS = [
-  './',
-  './index.html',
-  './styles.css?v=4',
-  './app.js?v=4',
-  './manifest.webmanifest',
-  './icons/icon-192.png',
-  './icons/icon-512.png'
-];
-
-self.addEventListener('install', (event) => {
+const CACHE = 'my-work-schedule-v5';
+const PREFIX = 'my-work-schedule-';
+const ASSETS = ['./','./index.html','./styles.css?v=5','./data.js?v=5','./storage.js?v=5','./app.js?v=5','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
+self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));
-  self.skipWaiting();
 });
-
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key))))
-  );
-  self.clients.claim();
+self.addEventListener('message', event => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
 });
-
-self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
-
+self.addEventListener('activate', event => {
+  // Keep earlier app assets for already open tabs. Prune after all clients use this version.
+  event.waitUntil(self.clients.matchAll({includeUncontrolled:true}).then(async clients => {
+    if (clients.length === 0) {
+      const keys = await caches.keys();
+      await Promise.all(keys.filter(key => key.startsWith(PREFIX) && key !== CACHE).map(key => caches.delete(key)));
+    }
+  }));
+});
+self.addEventListener('fetch', event => {
+  if (event.request.method !== 'GET' || new URL(event.request.url).origin !== self.location.origin) return;
   if (event.request.mode === 'navigate') {
-    event.respondWith(
-      fetch(event.request)
-        .then(response => {
-          const copy = response.clone();
-          caches.open(CACHE).then(cache => cache.put('./index.html', copy));
-          return response;
-        })
-        .catch(() => caches.match('./index.html'))
-    );
+    // Serve one complete, versioned app shell. Never mix new HTML and old scripts offline.
+    event.respondWith(caches.open(CACHE).then(async cache => (await cache.match('./index.html')) || fetch(event.request)));
     return;
   }
-
-  event.respondWith(
-    caches.match(event.request).then(cached => {
-      const network = fetch(event.request)
-        .then(response => {
-          const copy = response.clone();
-          caches.open(CACHE).then(cache => cache.put(event.request, copy));
-          return response;
-        })
-        .catch(() => cached);
-      return cached || network;
-    })
-  );
+  const allowed = ASSETS.some(asset => new URL(asset,self.registration.scope).href === event.request.url);
+  if (!allowed) return;
+  event.respondWith(caches.open(CACHE).then(async cache => (await cache.match(event.request)) || fetch(event.request)));
 });
