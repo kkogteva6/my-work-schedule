@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   --bg: #f6f6f2;
   --surface: #ffffff;
   --surface-2: #edf1ee;
@@ -227,6 +228,14 @@ main { padding: 0 16px; }
 .week-planner-card h2, .plans-section-heading h2 { margin: 3px 0 0; font-size: 20px; letter-spacing: -.3px; }
 .week-helper { margin: 9px 0 12px; }
 .week-planner-list { display: grid; gap: 8px; }
+.week-total-card { background: var(--surface-2); border: 1px solid var(--line); border-radius: 16px; padding: 14px; margin: 14px 0; }
+.week-total-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
+.week-total-heading strong { font-size: 25px; line-height: 1.3; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.week-total-card p { font-size: 13px; line-height: 1.5; margin: 8px 0 0; }
+.week-total-card .week-total-coverage { font-weight: 700; }
+.week-total-help { color: var(--muted); }
+.plan-calculation-card > .week-total-preview { grid-column: 1 / -1; border-top: 1px solid var(--line); }
+.week-total-preview small { display: block; color: var(--muted); font-size: 12px; line-height: 1.45; margin-top: 6px; }
 .week-plan-row {
   width: 100%; border: 1px solid transparent; background: #f5f3ed; color: var(--text);
   border-radius: 16px; min-height: 76px; padding: 11px 12px; cursor: pointer;
@@ -458,3 +467,100 @@ dialog .toast { bottom: 18px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* Appearance follows the OS by default; explicit choice is applied before CSS loads. */
+.appearance-fieldset { border: 0; padding: 0; margin: 0 0 20px; min-width: 0; }
+.appearance-fieldset legend { padding: 0; margin-bottom: 10px; font-size: 15px; font-weight: 800; }
+.appearance-options { display: grid; grid-template-columns: 1.35fr 1fr 1fr; gap: 4px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 16px; padding: 4px; }
+.appearance-options label { position: relative; min-width: 0; cursor: pointer; }
+.appearance-options input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.appearance-options span { display: flex; align-items: center; justify-content: center; text-align: center; min-height: 48px; padding: 8px 5px; border-radius: 11px; border: 1px solid transparent; color: var(--muted); font-size: 13px; line-height: 1.3; font-weight: 650; }
+.appearance-options input:checked + span { background: var(--surface); color: var(--green-dark); border-color: var(--green); box-shadow: var(--shadow); }
+.appearance-options input:focus-visible + span { outline: 3px solid #426fa0; outline-offset: 2px; }
+.appearance-fieldset .field-help { margin: 10px 0 0; }
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111a18;
+  --surface: #192521;
+  --surface-2: #25362f;
+  --text: #e4eee9;
+  --muted: #a7bcb5;
+  --green: #8bc7ae;
+  --green-dark: #adddc7;
+  --amber: #ddbd7c;
+  --coral: #e4a397;
+  --lavender: #b7a0d4;
+  --sky: #99bbdc;
+  --red: #ffb4a9;
+  --line: #ffffff1f;
+  --shadow: 0 6px 24px #00000016;
+}
+[data-theme="dark"] .hero-card { background: linear-gradient(120deg,#25483f,#345e4f); }
+[data-theme="dark"] .primary-button { background: #8bc7ae; color: #112c22; }
+[data-theme="dark"] .primary-button:active { background: #a4d7bf; }
+[data-theme="dark"] .status-dot { background: #8bc7ae; }
+[data-theme="dark"] .summary-card,
+[data-theme="dark"] .data-health { background: #20382d; border-color: #355346; }
+[data-theme="dark"] .summary-card:nth-child(2),
+[data-theme="dark"] .balance-banner { background: #1e2e40; border-color: #33475a; }
+[data-theme="dark"] .summary-card:nth-child(2) strong { color: #b6cff5; }
+[data-theme="dark"] .today-times div:nth-child(2) { background: #24354a; }
+[data-theme="dark"] .smart-tip { background: #3a3221; border-color: #5c4d2f; color: #edce8e; }
+[data-theme="dark"] #studyPreviewCard { background: #2a2438; border-color: #443956; }
+[data-theme="dark"] #studyPreviewCard .label { color: #d7c4ee; }
+[data-theme="dark"] .tabbar { background: #192521f5; }
+[data-theme="dark"] .tab.active { background: #284536; color: #b2ddc8; }
+[data-theme="dark"] .tab[data-target="schedule"].active { background: #24354a; color: #b6cff5; }
+[data-theme="dark"] .tab[data-target="plans"].active { background: #3b304d; color: #d7c4ee; }
+[data-theme="dark"] .positive-text { color: #b2ddc8 !important; }
+[data-theme="dark"] .negative-text { color: #ffc2b8 !important; }
+[data-theme="dark"] .delta.positive,
+[data-theme="dark"] .week-plan-badge.positive { color: #b2ddc8; background: #243e32; }
+[data-theme="dark"] .delta.negative,
+[data-theme="dark"] .week-plan-badge.negative { color: #ffc2b8; background: #442d2a; }
+[data-theme="dark"] .day-plan,
+[data-theme="dark"] .calculated-strip { background: #373022; color: #e8d8b4; }
+[data-theme="dark"] .calendar-day { background: #25362f; }
+[data-theme="dark"] .calendar-day.weekend { background: #15201b; color: #a7bcb5; }
+[data-theme="dark"] .calendar-day.positive { background: #294f3c; color: #c0efd2; }
+[data-theme="dark"] .calendar-day.negative { background: #55332f; color: #ffcec4; }
+[data-theme="dark"] .calendar-day.neutral { background: #34423b; }
+[data-theme="dark"] .calendar-day.blank { background: transparent; }
+[data-theme="dark"] .calendar-day.partial { box-shadow: inset 0 0 0 2px #ddbd7c; }
+[data-theme="dark"] .study-marker { background: #c5a6e7; box-shadow: 0 0 0 2px #192521; }
+[data-theme="dark"] .legend-dot.study { background: #c5a6e7; }
+[data-theme="dark"] .legend-dot.positive { background: #93c5a4; }
+[data-theme="dark"] .legend-dot.negative { background: #e4a397; }
+[data-theme="dark"] .week-plan-row { background: #23312b; }
+[data-theme="dark"] .week-plan-row.filled { background: #2d283b; border-color: #443956; }
+[data-theme="dark"] .week-plan-badge { background: #38473f; }
+[data-theme="dark"] .plan-day:nth-child(n) { border-left-color: #b7a0d4; }
+[data-theme="dark"] .plan-calculation-card,
+[data-theme="dark"] .calculated-field { background: #243b30; }
+[data-theme="dark"] .plan-calculation-card > div { background: #192b22; }
+[data-theme="dark"] .plan-calculation-card p { color: #bfd3c8; }
+[data-theme="dark"] .notice { background: #352f22; border-color: #574a32; }
+[data-theme="dark"] .backup-notice,
+[data-theme="dark"] .data-link { background: #223240; border-color: #3b5062; }
+[data-theme="dark"] .data-link { color: #b6cff5; }
+[data-theme="dark"] .danger-notice,
+[data-theme="dark"] .validation-message { background: #402924; border-color: #6b453b; color: #ffc2b8; }
+[data-theme="dark"] .update-notice { background: #20382d; border-color: #355346; }
+[data-theme="dark"] .field { color: #b9cec5; }
+[data-theme="dark"] .field input,
+[data-theme="dark"] .field textarea,
+[data-theme="dark"] .field select,
+[data-theme="dark"] .history-item { background: #14201b; border-color: #3b5047; }
+[data-theme="dark"] .field input::placeholder,
+[data-theme="dark"] .field textarea::placeholder { color: #92a79e; opacity: 1; }
+[data-theme="dark"] .field input:focus,
+[data-theme="dark"] .field textarea:focus,
+[data-theme="dark"] .field select:focus { border-color: #8bc7ae; box-shadow: 0 0 0 3px #8bc7ae26; }
+[data-theme="dark"] .sheet-handle { background: #587064; }
+[data-theme="dark"] .sheet-dialog::backdrop { background: #00000099; }
+[data-theme="dark"] .toast { background: #e1eee6; color: #192521; }
+[data-theme="dark"] button:focus-visible,
+[data-theme="dark"] summary:focus-visible,
+[data-theme="dark"] [role="button"]:focus-visible,
+[data-theme="dark"] .appearance-options input:focus-visible + span { outline-color: #a2c5f2; }

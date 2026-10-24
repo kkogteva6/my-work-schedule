@@ -1,6 +1,6 @@
-const CACHE = 'my-work-schedule-v5';
+const CACHE = 'my-work-schedule-v8';
 const PREFIX = 'my-work-schedule-';
-const ASSETS = ['./','./index.html','./styles.css?v=5','./data.js?v=5','./storage.js?v=5','./app.js?v=5','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
+const ASSETS = ['./','./index.html','./theme.js?v=8','./styles.css?v=8','./data.js?v=8','./storage.js?v=8','./app.js?v=8','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));
 });

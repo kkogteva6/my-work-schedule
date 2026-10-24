@@ -27,14 +27,56 @@ const PLAN_DAYS = [
 ];
 
 const QUOTES = {
-  0: ['Воскресенье — официальный день ничего не трогать', 'Сегодня можно не торопиться. Совсем'],
-  1: ['Понедельник — день бездельник. Но часы сами себя не накопят', 'Главное в понедельник — красиво начать неделю'],
-  2: ['Вторник уже не понедельник. Это победа', 'Работаем умно, чтобы потом уйти на пары вовремя'],
-  3: ['Среда — маленькая пятница, если очень верить', 'Половина недели позади. Баланс часов всё помнит'],
-  4: ['Четверг — почти пятница, держимся', 'Ещё чуть-чуть, и можно планировать ранний уход'],
-  5: ['Пятница создана, чтобы уходить раньше', '7 часов 45 минут — звучит уже по-человечески'],
-  6: ['Суббота. Рабочий баланс сегодня отдыхает', 'Никаких долгов по часам. Только отдых']
+  0: [
+    'Воскресенье: зарядка нужна не только телефону.',
+    'План на воскресенье: оставить немного времени без плана.',
+    'Завтра новая неделя. Сегодня можно просто выдохнуть.',
+    'Воскресенье напоминает: отдых — тоже полезное дело.'
+  ],
+  1: [
+    'Понедельник. Начнём с малого — хотя бы с кофе.',
+    'Новая неделя не требует новой личности. Достаточно первого шага.',
+    'Понедельник — загрузка недели. Не нажимай на себя слишком часто.',
+    'Сегодня не нужно успеть всё. Выбери главное и начни.'
+  ],
+  2: [
+    'Вторник: понедельник пройден, опыт получен.',
+    'Вторник — хороший день, чтобы похвалить себя за маленький прогресс.',
+    'По одному делу за раз. Даже во вторник у тебя только две руки.',
+    'Вторник. Уже в ритме, ещё без пятничной суеты.'
+  ],
+  3: [
+    'Среда — экватор недели. Можно выдохнуть.',
+    'Среда: половина пути позади. Ты уже многое сделала.',
+    'Середина недели — самое время добавить в планы что-то приятное.',
+    'Среда. Если силы на 40%, план на 140% можно пересмотреть.'
+  ],
+  4: [
+    'Четверг: пятница уже машет из-за угла.',
+    'Четверг — почти пятница, только с более серьёзным лицом.',
+    'Не всё срочное — главное. Особенно в четверг.',
+    'Четверг. Ещё немного дел — и немного заботы о себе.'
+  ],
+  5: [
+    'Пятница. У списка дел тоже должен быть конец.',
+    'Пятница: закрываем задачи, открываем планы на приятное.',
+    'Не обязательно закончить всё, чтобы заслужить отдых.',
+    'Пятница — хороший повод заметить, сколько уже получилось.'
+  ],
+  6: [
+    'Суббота: в расписании должно быть место для себя.',
+    'Субботний план: меньше «надо», больше «хочется».',
+    'Даже если суббота занята, маленькая пауза всё равно твоя.',
+    'Суббота. Кофе можно пить просто так, а не для ускорения.'
+  ]
 };
+
+function quoteForDay(date) {
+  const quotes = QUOTES[date.getDay()];
+  // Local calendar date, independent of DST. Each weekday rotates weekly.
+  const week = Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 604800000);
+  return quotes[((week % quotes.length) + quotes.length) % quotes.length];
+}
 
 let state = ScheduleData.normalize(DEFAULT_STATE);
 const store = new ScheduleStore();
@@ -180,8 +222,7 @@ function plannedLeave(plan) {
   return must - commute;
 }
 
-function getEffectivePlan(key, entry = state.entries[key] || {}) {
-  const weekly = state.weekPlans[key] || {};
+function getEffectivePlan(key, entry = state.entries[key] || {}, weekly = state.weekPlans[key] || {}) {
   const entryHasEvent = Boolean(entry.mustBeAt);
   return {
     plannedArrival: weekly.plannedArrival || '',
@@ -206,6 +247,66 @@ function entryDelta(date, entry) {
   const actual = minutesFromTime(entry.actualLeave);
   if (start == null || actual == null || actual < start) return null;
   return actual - start - (entry.breakMinutes || 0) - (entry.requiredMinutes ?? requiredMinutesForDate(date));
+}
+
+function formatSignedMinutes(minutes) {
+  const value = Math.round(minutes);
+  return `${value > 0 ? '+' : value < 0 ? '−' : ''}${Math.abs(value)} мин`;
+}
+
+// One source for daily badges, the week's total and the unsaved editor preview.
+function dayForecast(date, weeklyOverride) {
+  const key = isoDate(date);
+  const entry = state.entries[key] || {};
+  const plan = getEffectivePlan(key, entry, weeklyOverride);
+  const actual = entryDelta(date, entry);
+  if (actual != null) return { delta: actual, source: 'actual', plan };
+  const hasPlan = Boolean(plan.plannedArrival || plan.mustBeAt || plan.destination);
+  const arrival = entry.arrival || plan.plannedArrival;
+  const start = minutesFromTime(arrival);
+  if (entry.actualLeave || !hasPlan || start == null) {
+    return { delta: null, source: 'missing', plan, arrival, needsInput: Boolean(requiredMinutesForDate(date) || hasPlan || entry.arrival || entry.actualLeave) };
+  }
+  const normal = requiredLeave(date, arrival);
+  const leave = plan.mustBeAt ? plannedLeave(plan) : normal;
+  const pause = entry.breakMinutes || 0;
+  if (!Number.isFinite(leave) || leave < start + pause || leave >= 1440) {
+    return { delta: null, source: 'invalid', plan, arrival, normal, leave, needsInput: true };
+  }
+  return { delta: leave - normal, source: 'plan', plan, arrival, normal, leave };
+}
+
+function weekForecast(start, draft = null) {
+  const result = { total: 0, actual: 0, planned: 0, actualDays: 0, plannedDays: 0, missingDays: 0, invalidDays: 0 };
+  for (let offset = 0; offset < 7; offset++) {
+    const date = addDays(start, offset);
+    const forecast = dayForecast(date, draft?.key === isoDate(date) ? draft.plan : undefined);
+    if (forecast.source === 'actual') { result.actual += forecast.delta; result.actualDays++; }
+    else if (forecast.source === 'plan') { result.planned += forecast.delta; result.plannedDays++; }
+    else if (forecast.source === 'invalid') result.invalidDays++;
+    else if (forecast.needsInput) result.missingDays++;
+  }
+  result.total = result.actual + result.planned;
+  return result;
+}
+
+function forecastCoverage(result) {
+  const count = result.actualDays + result.plannedDays;
+  const parts = [`Учтено дней: ${count}`];
+  if (result.missingDays) parts.push(`не заполнено: ${result.missingDays}`);
+  if (result.invalidDays) parts.push(`проверь время: ${result.invalidDays}`);
+  return parts.join(' · ');
+}
+
+function renderWeekTotal() {
+  const result = weekForecast(shownPlanWeekStart);
+  const hasData = result.actualDays + result.plannedDays > 0;
+  $('weekTotal').textContent = hasData ? formatSignedMinutes(result.total) : '—';
+  setBalanceStyle($('weekTotal'), result.total);
+  $('weekTotalBreakdown').textContent = hasData
+    ? `Факт: ${formatSignedMinutes(result.actual)} · По плану: ${formatSignedMinutes(result.planned)}`
+    : 'Добавь план дня, чтобы увидеть итог.';
+  $('weekTotalCoverage').textContent = forecastCoverage(result);
 }
 
 function getPeriodStart(date) {
@@ -301,8 +402,7 @@ function renderHome() {
   const balance = periodBalance(currentPeriod);
 
   $('homeWeekday').textContent = WEEKDAYS[day];
-  const quotes = QUOTES[day];
-  $('homeQuote').textContent = quotes[today.getDate() % quotes.length];
+  $('homeQuote').textContent = quoteForDay(today);
   $('clockNow').textContent = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
 
   $('periodBalance').textContent = formatSigned(balance);
@@ -328,7 +428,6 @@ function renderHome() {
   $('arriveNowBtn').textContent = entry.arrival ? `Приход ${entry.arrival} ✓` : 'Я пришла';
   $('leaveNowBtn').disabled = !entry.arrival || Boolean(entry.actualLeave) || !ready;
   $('leaveNowBtn').textContent = entry.actualLeave ? `Уход ${entry.actualLeave} ✓` : 'Я ушла';
-  $('homeQuote').textContent = entry.actualLeave ? 'Рабочий день завершён. Время для себя.' : entry.arrival ? 'Работа идёт. Оставим время на важное.' : plan.mustBeAt ? `Сегодня есть планы. Поможем успеть к ${plan.mustBeAt}.` : 'Работа, учёба и время для себя — в одном месте.';
 
   const pLeave = plannedLeave(plan);
   if (plan.mustBeAt && pLeave != null) {
@@ -502,6 +601,7 @@ function renderSchedule() {
 }
 
 function renderWeekPlanner() {
+  renderWeekTotal();
   const root = $('weekPlannerList');
   root.innerHTML = '';
   const today = dateOnly(new Date());
@@ -509,12 +609,13 @@ function renderWeekPlanner() {
   for (let offset = 0; offset < 7; offset += 1) {
     const date = addDays(shownPlanWeekStart, offset);
     const key = isoDate(date);
-    const plan = state.weekPlans[key] || {};
+    const forecast = dayForecast(date);
+    const plan = forecast.plan;
     const entry = state.entries[key] || {};
     const hasPlan = Boolean(plan.plannedArrival || plan.mustBeAt || plan.destination);
-    const normal = requiredLeave(date, plan.plannedArrival);
+    const normal = requiredLeave(date, entry.arrival || plan.plannedArrival);
     const needLeave = plannedLeave(plan);
-    const delta = planDelta(date, plan);
+    const delta = forecast.delta;
 
     const row = document.createElement('button');
     row.type = 'button';
@@ -528,7 +629,7 @@ function renderWeekPlanner() {
     if (hasPlan) {
       mainText = plan.destination || (plan.mustBeAt ? 'Учёба / дела' : 'Рабочий день');
       const parts = [];
-      if (plan.plannedArrival) parts.push(`приход ${plan.plannedArrival}`);
+      if (entry.arrival || plan.plannedArrival) parts.push(`приход ${entry.arrival || plan.plannedArrival}${entry.arrival ? ' (факт)' : ''}`);
       if (normal != null) parts.push(`норма ${timeFromMinutes(normal)}`);
       if (plan.mustBeAt) parts.push(`быть к ${plan.mustBeAt}`);
       if (needLeave != null) parts.push(`уйти ${timeFromMinutes(needLeave)}`);
@@ -537,7 +638,7 @@ function renderWeekPlanner() {
         badge = formatSigned(delta);
         badgeClass = delta > 0 ? 'positive' : delta < 0 ? 'negative' : 'neutral';
       } else {
-        badge = 'по норме';
+        badge = forecast.source === 'invalid' ? 'проверь время' : 'нужно время';
         badgeClass = 'neutral';
       }
     }
@@ -748,6 +849,11 @@ function updateWeekPlanPreview() {
     text = 'По обычному графику это выходной';
   }
   $('weekPlanDeltaText').textContent = text;
+  const preview = weekForecast(weekStart(date), { key, plan });
+  const hasData = preview.actualDays + preview.plannedDays > 0;
+  $('weekTotalPreview').textContent = hasData ? formatSignedMinutes(preview.total) : '—';
+  setBalanceStyle($('weekTotalPreview'), preview.total);
+  $('weekTotalPreviewHint').textContent = `${forecastCoverage(preview)}. ${entryDelta(date, state.entries[key]) != null ? 'Этот день завершён: в итог входит факт.' : 'Предпросмотр с текущими полями. Изменения ещё не сохранены.'}`;
 }
 
 async function saveWeekPlanFromDialog() {
@@ -1143,7 +1249,22 @@ function renderConnection() {
   $('offlineStatus').textContent = navigator.onLine ? 'Локальное приложение · облачная синхронизация не подключена' : 'Без интернета · изменения сохраняются на устройстве';
 }
 
+function initAppearance() {
+  const controls = document.querySelectorAll('input[name="appearance"]');
+  const sync = () => controls.forEach(input => { input.checked = input.value === ScheduleTheme.preference; });
+  sync();
+  window.addEventListener('appearancechange', sync);
+  controls.forEach(input => input.addEventListener('change', () => {
+    if (!input.checked) return;
+    const saved = ScheduleTheme.set(input.value);
+    $('themeHelp').textContent = saved
+      ? 'Применяется сразу и запоминается на этом устройстве.'
+      : 'Тема применена. Браузер не разрешил запомнить выбор после закрытия.';
+  }));
+}
+
 async function boot() {
+  initAppearance();
   initPlanDays();
   initEvents();
   initDataEvents();

@@ -12,7 +12,8 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=5" />
+  <script src="theme.js?v=8"></script>
+  <link rel="stylesheet" href="styles.css?v=8" />
   <title>Мой график</title>
 </head>
 <body>
@@ -166,6 +167,12 @@
             </div>
           </div>
           <p class="muted small-text week-helper">Выбери день: укажи приход, время занятия и дорогу. Мы посчитаем, когда выходить.</p>
+          <section class="week-total-card" aria-label="Баланс выбранной недели">
+            <div class="week-total-heading"><span class="label">Итог недели</span><strong id="weekTotal" aria-live="polite">—</strong></div>
+            <p id="weekTotalBreakdown"></p>
+            <p class="week-total-coverage" id="weekTotalCoverage"></p>
+            <p class="week-total-help">Завершённые дни — по факту, остальные — по плану. Без времени занятия считаем уход по норме. Незаполненные дни в сумму не входят. Это изменение баланса за эту неделю.</p>
+          </section>
           <div id="weekPlannerList" class="week-planner-list"></div>
         </section>
 
@@ -299,6 +306,10 @@
         <div><span>По норме</span><strong id="weekNormalLeave">—</strong></div>
         <div><span>Чтобы успеть</span><strong id="weekNeedLeave">—</strong></div>
         <p id="weekPlanDeltaText">Укажи время, чтобы увидеть расчёт</p>
+        <div class="week-total-preview">
+          <span>Итог недели с этим днём</span><strong id="weekTotalPreview" aria-live="polite">—</strong>
+          <small id="weekTotalPreviewHint"></small>
+        </div>
       </div>
 
       <div class="dialog-actions">
@@ -330,16 +341,27 @@
     </form>
   </dialog>
 
-  <dialog id="settingsDialog" class="sheet-dialog">
+  <dialog id="settingsDialog" class="sheet-dialog" aria-labelledby="settingsTitle">
     <form method="dialog" id="settingsForm" class="sheet-content">
       <div class="sheet-handle"></div>
       <div class="sheet-header">
         <div>
           <span class="label">Настройки</span>
-          <h2>Рабочий график</h2>
+          <h2 id="settingsTitle">Настройки</h2>
         </div>
         <button type="button" class="icon-button" id="closeSettingsBtn" aria-label="Закрыть">×</button>
       </div>
+
+      <fieldset class="appearance-fieldset" aria-describedby="themeHelp">
+        <legend>Оформление</legend>
+        <div class="appearance-options">
+          <label><input type="radio" name="appearance" value="system" checked /><span>Как на устройстве</span></label>
+          <label><input type="radio" name="appearance" value="light" /><span>Светлая</span></label>
+          <label><input type="radio" name="appearance" value="dark" /><span>Тёмная</span></label>
+        </div>
+        <p class="field-help" id="themeHelp" role="status">Применяется сразу и запоминается на этом устройстве.</p>
+      </fieldset>
+      <div class="form-section-title">Рабочий график</div>
 
       <div class="form-grid two">
         <label class="field">
@@ -410,8 +432,8 @@
   </dialog>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="data.js?v=5"></script>
-  <script src="storage.js?v=5"></script>
-  <script src="app.js?v=5"></script>
+  <script src="data.js?v=8"></script>
+  <script src="storage.js?v=8"></script>
+  <script src="app.js?v=8"></script>
 </body>
 </html>
